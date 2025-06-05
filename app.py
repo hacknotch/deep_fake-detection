@@ -4,29 +4,29 @@ import os
 import cv2
 import numpy as np
 from tensorflow.keras.models import load_model
-import tempfile
-from datetime import datetime
 import shutil
-import gdown  # for downloading from Google Drive
+import gdown
 
 app = Flask(__name__)
 
-# Configure folders
+# Constants
 UPLOAD_FOLDER = 'uploads'
 WATERMARKED_FOLDER = 'watermarked'
-MODEL_PATH = 'models/mesonet_model.h5'
+MODEL_FOLDER = 'models'
+MODEL_PATH = os.path.join(MODEL_FOLDER, 'mesonet_model.h5')
+MODEL_DRIVE_ID = '1X7RgfjG38M_Uqonwmr3cFq-Wl1SkLaIr'
 
-# Create necessary folders
+# Ensure folders exist
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(WATERMARKED_FOLDER, exist_ok=True)
-os.makedirs('models', exist_ok=True)
+os.makedirs(MODEL_FOLDER, exist_ok=True)
 
-# Download model from Google Drive if not found
+# Download model from Google Drive if missing
 if not os.path.exists(MODEL_PATH):
     print("Downloading model from Google Drive...")
-    gdown.download("https://drive.google.com/uc?export=download&id=1X7RgfjG38M_Uqonwmr3cFq-Wl1SkLaIr", MODEL_PATH, quiet=False)
+    gdown.download(f"https://drive.google.com/uc?export=download&id={MODEL_DRIVE_ID}", MODEL_PATH, quiet=False)
 
-# Load the ML model
+# Load the model
 model = load_model(MODEL_PATH)
 
 def add_watermark(frame):
@@ -53,7 +53,6 @@ def add_watermark(frame):
 
 def process_video_with_watermark(input_path, output_path):
     try:
-        # TODO: implement real watermarking if needed
         shutil.copy2(input_path, output_path)
     except Exception as e:
         print(f"Error processing video: {str(e)}")
@@ -74,71 +73,66 @@ def analyze_video(video_path):
                 break
 
             if frame_count % frame_skip == 0:
-                resized_frame = cv2.resize(frame, (256, 256))
-                normalized_frame = resized_frame / 255.0
-                input_frame = np.expand_dims(normalized_frame, axis=0)
-
-                prediction = model.predict(input_frame, verbose=0)
-                fake_score = prediction[0][0]
-
+                resized = cv2.resize(frame, (256, 256))
+                norm = resized / 255.0
+                input_tensor = np.expand_dims(norm, axis=0)
+                pred = model.predict(input_tensor, verbose=0)
+                fake_score = pred[0][0]
                 label = "Fake" if fake_score > 0.5 else "Real"
                 fake_count += label == "Fake"
                 real_count += label == "Real"
-
                 results.append({
                     "frame": frame_count,
                     "label": label,
                     "score": float(fake_score)
                 })
-
             frame_count += 1
     finally:
         cap.release()
 
-    final_decision = "FAKE" if fake_count > real_count else "REAL"
-    
+    final_result = "FAKE" if fake_count > real_count else "REAL"
     return {
         "frame_results": results,
         "total_fake_frames": fake_count,
         "total_real_frames": real_count,
-        "final_decision": final_decision
+        "final_decision": final_result
     }
 
 @app.route('/')
 def home():
-    return render_template('frontend.html')  # make sure frontend.html is in /templates/
+    return render_template('frontend.html')
 
 @app.route('/api/analyze', methods=['POST'])
 def analyze():
     if 'video' not in request.files:
         return jsonify({'error': 'No video file provided'}), 400
-    
+
     file = request.files['video']
     if file.filename == '':
         return jsonify({'error': 'No selected file'}), 400
-    
+
     filename = secure_filename(file.filename)
-    temp_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    file.save(temp_path)
-    
+    upload_path = os.path.join(UPLOAD_FOLDER, filename)
+    file.save(upload_path)
+
     try:
-        results = analyze_video(temp_path)
+        results = analyze_video(upload_path)
         if results['final_decision'] == 'FAKE':
-            watermarked_filename = f"watermarked_{filename}"
-            watermarked_path = os.path.join(app.config['WATERMARKED_FOLDER'], watermarked_filename)
-            process_video_with_watermark(temp_path, watermarked_path)
-            results['watermarked_path'] = watermarked_filename
+            output_name = f"watermarked_{filename}"
+            output_path = os.path.join(WATERMARKED_FOLDER, output_name)
+            process_video_with_watermark(upload_path, output_path)
+            results['watermarked_path'] = output_name
         return jsonify(results)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     finally:
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
+        if os.path.exists(upload_path):
+            os.remove(upload_path)
 
 @app.route('/download/<filename>')
 def download_file(filename):
     return send_file(
-        os.path.join(app.config['WATERMARKED_FOLDER'], filename),
+        os.path.join(WATERMARKED_FOLDER, filename),
         as_attachment=True,
         mimetype='video/mp4'
     )
