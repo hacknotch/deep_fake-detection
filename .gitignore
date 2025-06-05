@@ -1,0 +1,24 @@
+# Ignore virtual environment
+venv/
+
+# Ignore datasets, models, and uploads
+models/
+dataset/
+uploads/
+watermarked/
+detection_results/
+*.mp4
+
+# Ignore system files and cache
+__pycache__/
+*.pyc
+.vscode/
+.DS_Store
+Thumbs.db
+
+venv/
+*.h5
+*.pkl
+*.mp4
+__pycache__/
+*.pyc
